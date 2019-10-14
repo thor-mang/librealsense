@@ -37,10 +37,8 @@ assign_version_property(PATCH)
 set(REALSENSE_VERSION_STRING ${REALSENSE_VERSION_MAJOR}.${REALSENSE_VERSION_MINOR}.${REALSENSE_VERSION_PATCH})
 infoValue(REALSENSE_VERSION_STRING)
 
-# In a ROS Build Environment CMAKE_PREFIX_PATH is also an environment variable
-# Checking for this special case and ensuring it contains a ROS path
-IF(DEFINED ENV{CMAKE_PREFIX_PATH})
-  IF($ENV{CMAKE_PREFIX_PATH} MATCHES "/opt/ros")
+IF(DEFINED CMAKE_PREFIX_PATH)
+  IF("${CMAKE_PREFIX_PATH}" MATCHES "/opt/ros")
     set(ROS_BUILD_TYPE TRUE)
   ENDIF()
 ENDIF()
@@ -180,21 +178,16 @@ if(UNIX)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-switch -Wno-multichar")
 
     execute_process(COMMAND ${CMAKE_C_COMPILER} -dumpmachine OUTPUT_VARIABLE MACHINE)
-    if(${MACHINE} MATCHES "arm-.*-gnueabihf")
+    if(${MACHINE} MATCHES "arm-linux-gnueabihf")
       set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS}   -mfpu=neon -mfloat-abi=hard -ftree-vectorize")
       set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mfpu=neon -mfloat-abi=hard -ftree-vectorize")
-    elseif(${MACHINE} MATCHES "arm-.*-gnueabi")
-      set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS}   -ftree-vectorize")
-      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -ftree-vectorize")
-    elseif(${MACHINE} MATCHES "aarch64|ppc64")
+    elseif(${MACHINE} MATCHES "aarch64-linux-gnu")
       set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS}   -mstrict-align -ftree-vectorize")
       set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mstrict-align -ftree-vectorize")
-    elseif(${MACHINE} MATCHES "x86_64-.*|i.86-.*")
+    else(${MACHINE} MATCHES "arm-linux-gnueabihf")
       set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS}   -mssse3")
       set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mssse3")
-    else(${MACHINE} MATCHES "arm-.*-gnueabihf")
-      message ( WARNING "ABI is not configured; no extra compile flags set." )
-    endif(${MACHINE} MATCHES "arm-.*-gnueabihf")
+    endif(${MACHINE} MATCHES "arm-linux-gnueabihf")
 endif()
 
 # Set CMAKE_INSTALL_* if not defined
@@ -210,11 +203,9 @@ else()
     add_library(realsense STATIC ${REALSENSE_CPP} ${REALSENSE_HPP})
 endif()
 
-target_include_directories(realsense PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-                                            $<INSTALL_INTERFACE:include>
-                                     PRIVATE ${LIBUSB1_INCLUDE_DIRS})
+target_include_directories(realsense PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include/ ${LIBUSB1_INCLUDE_DIRS})
 
-if(${ROS_BUILD_TYPE})
+IF (${ROS_BUILD_TYPE})
     install(TARGETS realsense
         RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
         LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
@@ -223,29 +214,15 @@ if(${ROS_BUILD_TYPE})
 
     install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/${PROJECT_NAME}/
         DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION})
-else()
-    set(CMAKECONFIG_INSTALL_DIR "${CMAKE_INSTALL_LIBDIR}/cmake/realsense")
-
-    install(TARGETS realsense
-        EXPORT realsenseTargets
+ELSE()
+    install( TARGETS realsense
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
         LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     )
 
     install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/librealsense DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
-
-    include(CMakePackageConfigHelpers)
-    configure_package_config_file(realsenseConfig.cmake.in realsenseConfig.cmake
-                                  INSTALL_DESTINATION ${CMAKECONFIG_INSTALL_DIR}
-                                  PATH_VARS CMAKE_INSTALL_INCLUDEDIR)
-
-    install(EXPORT realsenseTargets FILE realsenseTargets.cmake NAMESPACE realsense::
-            DESTINATION ${CMAKECONFIG_INSTALL_DIR})
-    install(FILES "${CMAKE_CURRENT_BINARY_DIR}/realsenseConfig.cmake"
-            DESTINATION ${CMAKECONFIG_INSTALL_DIR})
-    install(CODE "execute_process(COMMAND ldconfig)")
-endif()
+ENDIF()
 
 option(BUILD_EXAMPLES "Build realsense examples." OFF)
 if(BUILD_EXAMPLES)

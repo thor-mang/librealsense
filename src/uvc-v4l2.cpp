@@ -30,7 +30,6 @@
 #include <sys/stat.h>
 #include <sys/mman.h>
 #include <sys/ioctl.h>
-#include <sys/sysmacros.h>
 #include <linux/usb/video.h>
 #include <linux/uvcvideo.h>
 #include <linux/videodev2.h>
@@ -40,10 +39,6 @@
 #pragma GCC diagnostic pop
 
 #pragma GCC diagnostic ignored "-Woverflow"
-
-#ifndef V4L2_CAP_META_CAPTURE
-#define V4L2_CAP_META_CAPTURE    0x00800000  /* Specified in kernel header v4.16, required for back-compat */
-#endif // V4L2_CAP_META_CAPTURE
 
 namespace rsimpl
 {
@@ -99,9 +94,8 @@ namespace rsimpl
             video_channel_callback callback = nullptr;
             data_channel_callback  channel_data_callback = nullptr;    // handle non-uvc data produced by device
             bool is_capturing;
-            bool is_metastream;
 
-            subdevice(const std::string & name) : dev_name("/dev/" + name), vid(), pid(), fd(), width(), height(), format(), callback(nullptr), channel_data_callback(nullptr), is_capturing(), is_metastream()
+            subdevice(const std::string & name) : dev_name("/dev/" + name), vid(), pid(), fd(), width(), height(), format(), callback(nullptr), channel_data_callback(nullptr), is_capturing()
             {
                 struct stat st;
                 if(stat(dev_name.c_str(), &st) < 0)
@@ -159,9 +153,6 @@ namespace rsimpl
                 }
                 if(!(cap.capabilities & V4L2_CAP_VIDEO_CAPTURE)) throw std::runtime_error(dev_name + " is no video capture device");
                 if(!(cap.capabilities & V4L2_CAP_STREAMING)) throw std::runtime_error(dev_name + " does not support streaming I/O");
-                if((cap.device_caps & V4L2_CAP_META_CAPTURE)){
-                    is_metastream=true;
-                }
 
                 // Select video input, video standard and tune here.
                 v4l2_cropcap cropcap = {};
@@ -734,6 +725,25 @@ namespace rsimpl
 
         std::vector<std::shared_ptr<device>> query_devices(std::shared_ptr<context> context)
         {
+            // Check if the uvcvideo kernel module is loaded
+            std::ifstream modules("/proc/modules");
+            std::string modulesline;
+            std::regex regex("uvcvideo.* - Live.*");
+            std::smatch match;
+            bool module_found = false;
+
+
+            while(std::getline(modules,modulesline) && !module_found)
+            {
+                module_found = std::regex_match(modulesline, match, regex);
+            }
+
+            if(!module_found)
+            {
+                throw std::runtime_error("uvcvideo kernel module is not loaded");
+            }
+
+
             // Enumerate all subdevices present on the system
             std::vector<std::unique_ptr<subdevice>> subdevices;
             DIR * dir = opendir("/sys/class/video4linux");
@@ -779,8 +789,6 @@ namespace rsimpl
                 {
                     if(sub->busnum == dev->subdevices[0]->busnum && sub->devnum == dev->subdevices[0]->devnum)
                     {
-                        if (sub->is_metastream)  // avoid inserting metadata streamer
-                            continue;
                         dev->subdevices.push_back(move(sub));
                         is_new_device = false;
                         break;
@@ -789,8 +797,6 @@ namespace rsimpl
                 if(is_new_device)
                 {
                     if (sub->vid == VID_INTEL_CAMERA && sub->pid == ZR300_FISHEYE_PID)  // avoid inserting fisheye camera as a device
-                        continue;
-                    if (sub->is_metastream)  // avoid inserting metadata streamer
                         continue;
                     devices.push_back(std::make_shared<device>(context));
                     devices.back()->subdevices.push_back(move(sub));
@@ -815,8 +821,6 @@ namespace rsimpl
 
                 for(auto & dev : devices)
                 {
-                    if (sub->is_metastream)  // avoid inserting metadata streamer
-                        continue;
                     if (dev->subdevices[0]->vid == VID_INTEL_CAMERA && dev->subdevices[0]->pid == ZR300_CX3_PID && 
                         sub->vid == VID_INTEL_CAMERA && sub->pid == ZR300_FISHEYE_PID && dev->subdevices[0]->parent_devnum == sub->parent_devnum)
                     {
